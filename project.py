@@ -40,8 +40,8 @@ with col2:
 with col3:
     st.markdown("#### 🎯 총 발주량 제어 옵션")
     use_total_cap = st.checkbox("전체 총 발주량 제한 활성화", value=False)
-    # 수정: 실수형/정수형 혼용 에러 방지를 위해 step을 1.0으로 설정
-    max_total_order_limit = st.number_input("MTA 기종 최대 발주량 (대):", value=20, step=1.0, disabled=not use_total_cap)
+    # 수정: value와 step 모두 실수형(20.0, 1.0)으로 맞춰서 타입 혼용 에러 원천 차단
+    max_total_order_limit = st.number_input("MTA 기종 최대 발주량 (대):", value=20.0, step=1.0, disabled=not use_total_cap)
 
 # 3. 유틸리티 함수 정의
 def safe_float(val):
@@ -120,7 +120,6 @@ if uploaded_file is not None:
     for s in sheet_names:
         cols = st.columns([2, 2, 2, 2])
         cols[0].markdown(f"**[{s}]**")
-        # 수정: step을 1.0으로 지정하여 타입 일치
         capa = cols[1].number_input(f"최대 CAPA ({s})", value=10.0, step=1.0, key=f"capa_{s}")
         inv = cols[2].number_input(f"현재고 ({s})", value=19, step=1, key=f"inv_{s}")
         promo = cols[3].checkbox(f"프로모션 여부 ({s})", value=False, key=f"promo_{s}")
@@ -233,10 +232,10 @@ if uploaded_file is not None:
                     else:
                         momentum_desc = " / ".join(momentum_reasons)
 
-                    # 🌟 [계절성 성수기/비수기 퍼센트 정밀 진단]
+                    # 계절성 성수기/비수기 퍼센트 정밀 진단
                     seasonal_desc = "YoY 계절성 보통"
                     seasonal_diff_pct = 0.0
-                    seasonal_type = "normal" # 'boom' (성수기), 'slump' (비수기), 'normal'
+                    seasonal_type = "normal" 
                     
                     if valid_data_pairs:
                         latest_dt = valid_data_pairs[-1][0]
@@ -337,7 +336,7 @@ if uploaded_file is not None:
                     st.dataframe(pd.DataFrame(report_table_data), use_container_width=True, hide_index=True)
                     st.markdown(f"- **상승 모멘텀 진단**: {r['momentum_desc']}")
                     
-                    # 🌟 [계절성 결과에 따른 컬러 박스 적용] (성수기: 초록색, 비수기: 빨간색/주황색)
+                    # 계절성 결과에 따른 컬러 박스 적용
                     if r['seasonal_type'] == 'boom':
                         st.success(f"📈 **계절성 진단**: {r['seasonal_desc']}")
                     elif r['seasonal_type'] == 'slump':
