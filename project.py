@@ -9,7 +9,7 @@ import io
 # 1. 페이지 설정
 st.set_page_config(page_title="MTA 기종 운영수요량 자동 분석 프로그램", layout="wide")
 
-# 스타일 설정
+# 스타일 설정 (expander 및 테이블 커스텀 스타일 정의)
 st.markdown("""
 <style>
     [data-testid="stDataFrame"] table {
@@ -40,7 +40,6 @@ with col2:
 with col3:
     st.markdown("#### 🎯 총 발주량 제어 옵션")
     use_total_cap = st.checkbox("전체 총 발주량 제한 활성화", value=False)
-    # 수정: value와 step 모두 실수형(20.0, 1.0)으로 맞춰서 타입 혼용 에러 원천 차단
     max_total_order_limit = st.number_input("MTA 기종 최대 발주량 (대):", value=20.0, step=1.0, disabled=not use_total_cap)
 
 # 3. 유틸리티 함수 정의
@@ -206,7 +205,7 @@ if uploaded_file is not None:
                     basic_target_inv = math.ceil(basic_demand * global_lead_time)
                     basic_net_order = max(0, basic_target_inv - current_inventory)
 
-                    # [확장 파라미터 모델 산출] (상승 모멘텀 20% 기준 + 상세 퍼센트 계산)
+                    # [확장 파라미터 모델 산출]
                     prev_order_val = valid_orders[-2] if len(valid_orders) >= 2 else valid_orders[-1]
                     latest_order_val = valid_orders[-1] if valid_orders else 0.0
                     order_mom_pct = ((latest_order_val - prev_order_val) / prev_order_val * 100) if prev_order_val > 0 else 0.0
@@ -231,6 +230,19 @@ if uploaded_file is not None:
                         momentum_desc = f"일반 변동 (수주 {order_mom_pct:+.1f}%, 견적 {est_mom_pct:+.1f}%)"
                     else:
                         momentum_desc = " / ".join(momentum_reasons)
+
+                    # 🌟 모멘텀 방향성 판단 (상승: red, 하락: blue, 보합/기타: inherit)
+                    max_mom_val = max(order_mom_pct, est_mom_pct)
+                    min_mom_val = min(order_mom_pct, est_mom_pct)
+                    if max_mom_val > 0:
+                        mom_color = "#ff4b4b" # 빨간색 계열
+                        mom_bg = "#ffeef0"
+                    elif min_mom_val < 0:
+                        mom_color = "#1c83e1" # 파란색 계열
+                        mom_bg = "#eef6ff"
+                    else:
+                        mom_color = "#6c757d"
+                        mom_bg = "#f8f9fa"
 
                     # 계절성 성수기/비수기 퍼센트 정밀 진단
                     seasonal_desc = "YoY 계절성 보통"
@@ -286,6 +298,7 @@ if uploaded_file is not None:
                         'sheet_name': sheet_name,
                         'max_capa': max_capa,
                         'current_inventory': current_inventory,
+                        'prev_op_demand': prev_op_demand,
                         'basic_demand': basic_demand,
                         'basic_snapped_ratio': basic_snapped_ratio,
                         'basic_net_order': basic_net_order,
@@ -293,6 +306,8 @@ if uploaded_file is not None:
                         'advanced_snapped_ratio': advanced_snapped_ratio,
                         'raw_net_order': raw_net_order,
                         'momentum_desc': momentum_desc,
+                        'mom_color': mom_color,
+                        'mom_bg': mom_bg,
                         'seasonal_desc': seasonal_desc,
                         'seasonal_type': seasonal_type,
                         'is_exceeding_capa': is_exceeding_capa,
@@ -319,14 +334,27 @@ if uploaded_file is not None:
                     '기종(시트)': sheet_name,
                     '월 CAPA': r['max_capa'],
                     '현재고': r['current_inventory'],
-                    '기본 운영수요량': round(r['basic_demand'], 2),
-                    '기본 변동률': f"{r['basic_snapped_ratio']*100:+.0f}%",
+                    '기존 운영수요량': round(r['prev_op_demand'], 2),
                     'AI 기반 운영수요량': round(r['advanced_demand'], 2),
                     'AI 기반 변동률': f"{r['advanced_snapped_ratio']*100:+.0f}%",
                     '상태 진단': "🔥 활성" if r['seasonal_type']=='boom' else ("❄️ 위축" if r['seasonal_type']=='slump' else "정상"),
                     '원래 산출 발주량': f"{raw_ord} 대",
-                    '🚨 최종 조정 발주량': f"👉 {final_capped_order} 대"
+                    '🚨 최종 조정 발주량': f"👉 **{final_capped_order} 대**"
                 })
+
+                # 🌟 [상세 리포트 탭(Expander) 색상 동적 반영 기술]
+                expander_border = r['mom_color']
+                expander_bg = r['mom_bg']
+                
+                st.markdown(f"""
+                <style>
+                div.streamlit-expanderHeader {{
+                    background-color: {expander_bg} !important;
+                    border-left: 6px solid {expander_border} !important;
+                    border-radius: 4px;
+                }}
+                </style>
+                """, unsafe_allow_html=True)
 
                 with st.expander(f"📌 [{sheet_name}] 기본 프로그램 ({r['basic_snapped_ratio']*100:+.0f}%) ➡️ 확장 파라미터 반영 ({r['advanced_snapped_ratio']*100:+.0f}%) 상세 진단 리포트"):
                     report_table_data = [
@@ -334,7 +362,9 @@ if uploaded_file is not None:
                         {"분석 비교 항목": "2. 확장 파라메터 모델 (+모멘텀·성수기·CAPA 유연화)", "운영수요량": f"{r['advanced_demand']:.2f} 대", "변동률": f"{r['advanced_snapped_ratio']*100:+.0f}%", "산출 발주량": f"{raw_ord} 대"}
                     ]
                     st.dataframe(pd.DataFrame(report_table_data), use_container_width=True, hide_index=True)
-                    st.markdown(f"- **상승 모멘텀 진단**: {r['momentum_desc']}")
+                    
+                    # 상승 모멘텀 텍스트 및 탭 컬러 강조
+                    st.markdown(f"- **상승 모멘텀 진단**: <span style='color:{r['mom_color']}; font-weight:bold;'>{r['momentum_desc']}</span>", unsafe_allow_html=True)
                     
                     # 계절성 결과에 따른 컬러 박스 적용
                     if r['seasonal_type'] == 'boom':
@@ -350,7 +380,7 @@ if uploaded_file is not None:
                     else:
                         st.success("✅ 최대 CAPA 내에서 운영수요량 운영 중입니다.")
                         
-                    st.markdown(f"- **최종 발주 확정**: 최대 발주량 제한에 의해 **{final_capped_order}대**로 조정되었습니다.")
+                    st.markdown(f"- **최종 발주 확정**: 최대 발주량 제한에 의해 **<span style='color:#ff4b4b; font-size:18px;'>{final_capped_order}대</span>**로 조정되었습니다.", unsafe_allow_html=True)
 
             st.markdown(f"### 📊 [비교 분석 종합 표] 기본 모델 vs 확장 파라미터 반영 모델 (총 산출: {total_raw_orders}대)")
             if use_total_cap:
