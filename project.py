@@ -40,7 +40,8 @@ with col2:
 with col3:
     st.markdown("#### 🎯 총 발주량 제어 옵션")
     use_total_cap = st.checkbox("전체 총 발주량 제한 활성화", value=False)
-    max_total_order_limit = st.number_input("MTA 기종 최대 발주량 (대):", value=20, step=1, disabled=not use_total_cap)
+    # 수정: 실수형/정수형 혼용 에러 방지를 위해 step을 1.0으로 설정
+    max_total_order_limit = st.number_input("MTA 기종 최대 발주량 (대):", value=20, step=1.0, disabled=not use_total_cap)
 
 # 3. 유틸리티 함수 정의
 def safe_float(val):
@@ -119,7 +120,8 @@ if uploaded_file is not None:
     for s in sheet_names:
         cols = st.columns([2, 2, 2, 2])
         cols[0].markdown(f"**[{s}]**")
-        capa = cols[1].number_input(f"최대 CAPA ({s})", value=10.0, step=1, key=f"capa_{s}")
+        # 수정: step을 1.0으로 지정하여 타입 일치
+        capa = cols[1].number_input(f"최대 CAPA ({s})", value=10.0, step=1.0, key=f"capa_{s}")
         inv = cols[2].number_input(f"현재고 ({s})", value=19, step=1, key=f"inv_{s}")
         promo = cols[3].checkbox(f"프로모션 여부 ({s})", value=False, key=f"promo_{s}")
         machine_configs[s] = {'capa': capa, 'inventory': inv, 'promo': promo}
@@ -205,7 +207,7 @@ if uploaded_file is not None:
                     basic_target_inv = math.ceil(basic_demand * global_lead_time)
                     basic_net_order = max(0, basic_target_inv - current_inventory)
 
-                    # [확장 파라미터 모델 산출] (상승 모멘텀 20% 기준 + 상세 수치 계산)
+                    # [확장 파라미터 모델 산출] (상승 모멘텀 20% 기준 + 상세 퍼센트 계산)
                     prev_order_val = valid_orders[-2] if len(valid_orders) >= 2 else valid_orders[-1]
                     latest_order_val = valid_orders[-1] if valid_orders else 0.0
                     order_mom_pct = ((latest_order_val - prev_order_val) / prev_order_val * 100) if prev_order_val > 0 else 0.0
@@ -345,7 +347,7 @@ if uploaded_file is not None:
                     
                     # CAPA 경고 박스
                     if r['is_exceeding_capa']:
-                        st.error(f"⚠️ **CAPA 초과 경고**: 설정된 최대 CAPA({r['max_capa']}대)를 초과하여 운영수요량({r['original_calc_demand']:.2f}대)이 산출되었습니다. 무조건적인 강제 컷오프 대신 CAPA 근처에서 유연하게 수렴하도록 조정되었으므로, 신중하게 고려하여 발주**하시기 바랍니다.")
+                        st.error(f"⚠️ **CAPA 초과 경고**: 설정된 최대 CAPA({r['max_capa']}대)를 초과하여 운영수요량({r['original_calc_demand']:.2f}대)이 산출되었습니다. 무조건적인 강제 컷오프 대신 CAPA 근처에서 유연하게 수렴하도록 조정되었으므로, 신중하게 고려하여 발주하시기 바랍니다.")
                     else:
                         st.success("✅ 최대 CAPA 내에서 운영수요량 운영 중입니다.")
                         
