@@ -19,7 +19,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🛠️ MTA 기종 운영수요량 자동 분석 프로그램")
-st.markdown("엑셀 기반 수동 산출의 한계를 극복하고, **AI 파라미터(수주/견적 급등, 계약율, 계절성, CAPA, 발주 총량)**를 반영하여 최적의 수요와 순발주량을 도출하는 프로그램입니다.")
+st.markdown("엑셀 기반 수동 산출의 한계를 극복하고, **AI 파라미터(수주/견적 급등, 계약율, 계절성, 유연한 CAPA 관리, 발주 총량)**를 반영하여 최적의 수요와 순발주량을 도출하는 프로그램입니다.")
 
 # 2. 파일 업로드 및 글로벌 설정 영역
 uploaded_file = st.file_uploader("엑셀 파일 업로드 (.xlsx)", type=['xlsx'])
@@ -205,7 +205,7 @@ if uploaded_file is not None:
                     basic_target_inv = math.ceil(basic_demand * global_lead_time)
                     basic_net_order = max(0, basic_target_inv - current_inventory)
 
-                    # [확장 파라미터 모델 산출] (상승 모멘텀 20% 기준 + 성수기 + CAPA 제어)
+                    # [확장 파라미터 모델 산출] (상승 모멘텀 20% 기준 + 성수기 10% 기준 + 유연한 CAPA 관리)
                     prev_order_val = valid_orders[-2] if len(valid_orders) >= 2 else valid_orders[-1]
                     latest_order_val = valid_orders[-1] if valid_orders else 0.0
                     order_mom_pct = ((latest_order_val - prev_order_val) / prev_order_val * 100) if prev_order_val > 0 else 0.0
@@ -255,8 +255,15 @@ if uploaded_file is not None:
                     if (is_promo or is_auto_boom) and advanced_snapped_ratio < -0.05:
                         advanced_snapped_ratio = -0.05
 
+                    # 🌟 [CAPA 유연 수렴 로직 적용]: 무조건 컷오프하지 않고 CAPA 근처에서 탄력 운영
                     advanced_demand_calc = prev_op_demand * (1.0 + advanced_snapped_ratio)
-                    advanced_demand = min(advanced_demand_calc, max_capa)
+                    is_exceeding_capa = advanced_demand_calc > max_capa
+                    
+                    if is_exceeding_capa:
+                        advanced_demand = max_capa + (advanced_demand_calc - max_capa) * 0.4
+                    else:
+                        advanced_demand = advanced_demand_calc
+
                     advanced_target_inv = math.ceil(advanced_demand * global_lead_time)
                     raw_net_order = max(0, advanced_target_inv - current_inventory)
 
@@ -271,7 +278,9 @@ if uploaded_file is not None:
                         'advanced_snapped_ratio': advanced_snapped_ratio,
                         'raw_net_order': raw_net_order,
                         'momentum_desc': momentum_desc,
-                        'seasonal_desc': seasonal_desc
+                        'seasonal_desc': seasonal_desc,
+                        'is_exceeding_capa': is_exceeding_capa,
+                        'original_calc_demand': advanced_demand_calc
                     })
                 except Exception as e:
                     st.error(f"시트 '{sheet_name}' 분석 중 오류 발생: {e}")
@@ -298,6 +307,7 @@ if uploaded_file is not None:
                     '기본 변동률': f"{r['basic_snapped_ratio']*100:+.0f}%",
                     '확장 맞춤 수요': round(r['advanced_demand'], 2),
                     '확장 변동률': f"{r['advanced_snapped_ratio']*100:+.0f}%",
+                    'CAPA 상태': "⚠️ 초과 주의" if r['is_exceeding_capa'] else "정상",
                     '원래 산출 발주량': f"{raw_ord} 대",
                     '🚨 최종 조정 발주량': f"👉 {final_capped_order} 대"
                 })
@@ -305,11 +315,17 @@ if uploaded_file is not None:
                 with st.expander(f"📌 [{sheet_name}] 기본 프로그램 ({r['basic_snapped_ratio']*100:+.0f}%) ➡️ 확장 파라미터 반영 ({r['advanced_snapped_ratio']*100:+.0f}%) 상세 진단 리포트"):
                     report_table_data = [
                         {"분석 비교 항목": "1. 기본 AI 모델 (수주·견적·계약율)", "운영수요량": f"{r['basic_demand']:.2f} 대", "변동률": f"{r['basic_snapped_ratio']*100:+.0f}%", "산출 발주량": f"{r['basic_net_order']} 대"},
-                        {"분석 비교 항목": "2. 확장 맞춤 모델 (+모멘텀·성수기·CAPA)", "운영수요량": f"{r['advanced_demand']:.2f} 대", "변동률": f"{r['advanced_snapped_ratio']*100:+.0f}%", "산출 발주량": f"{raw_ord} 대"}
+                        {"분석 비교 항목": "2. 확장 맞춤 모델 (+모멘텀·성수기·CAPA 유연화)", "운영수요량": f"{r['advanced_demand']:.2f} 대", "변동률": f"{r['advanced_snapped_ratio']*100:+.0f}%", "산출 발주량": f"{raw_ord} 대"}
                     ]
                     st.dataframe(pd.DataFrame(report_table_data), use_container_width=True, hide_index=True)
                     st.markdown(f"- **상승 모멘텀 진단**: {r['momentum_desc']}")
                     st.markdown(f"- **계절성 진단**: {r['seasonal_desc']}")
+                    
+                    if r['is_exceeding_capa']:
+                        st.error(f"⚠️ **CAPA 초과 경고**: 설정된 최대 CAPA({r['max_capa']}대)를 초과하여 원천 수요량({r['original_calc_demand']:.2f}대)이 산출되었습니다. 무조건적인 강제 컷오프 대신 CAPA 근처에서 유연하게 수렴하도록 조정되었으나, **생산 공정 병목 및 캐파 확충 여부를 신중하게 고려하여 발주**하시기 바랍니다.")
+                    else:
+                        st.success("✅ 현재 CAPA 한도 내 안정적인 수급 대역에서 운영 중입니다.")
+                        
                     st.markdown(f"- **최종 발주 확정**: 총량 Capping 반영 결과 **{final_capped_order}대**로 조정되었습니다.")
 
             st.markdown(f"### 📊 [비교 분석 종합 표] 기본 AI 모델 vs 확장 파라미터 반영 모델 (총 산출: {total_raw_orders}대)")
