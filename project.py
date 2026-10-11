@@ -7,7 +7,7 @@ import datetime
 import io
 
 # 1. 페이지 설정
-st.set_page_config(page_title="MTA 기종 수요량 AI 분석 및 발주 최적화 대시보드", layout="wide")
+st.set_page_config(page_title="MTA 기종 운영수요량 자동 분석 프로그램", layout="wide")
 
 # 스타일 설정
 st.markdown("""
@@ -18,11 +18,11 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🛠️ MTA 기종 운영 수요량 AI 기반 분석 및 발주 최적화 대시보드")
-st.markdown("엑셀 기반 수동 산출의 한계를 극복하고, **AI 파라미터(수주/견적 급등, 계약율, 계절성, CAPA, 총량 Capping)**를 반영하여 최적의 수요와 순발주량을 도출하는 프로그램입니다.")
+st.title("🛠️ MTA 기종 운영수요량 자동 분석 프로그램")
+st.markdown("엑셀 기반 수동 산출의 한계를 극복하고, **AI 파라미터(수주/견적 급등, 계약율, 계절성, CAPA, 발주 총량)**를 반영하여 최적의 수요와 순발주량을 도출하는 프로그램입니다.")
 
 # 2. 파일 업로드 및 글로벌 설정 영역
-uploaded_file = st.file_uploader("수요 조정 엑셀 파일 업로드 (.xlsx)", type=['xlsx'])
+uploaded_file = st.file_uploader("엑셀 파일 업로드 (.xlsx)", type=['xlsx'])
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -39,8 +39,8 @@ with col2:
     )[0]
 with col3:
     st.markdown("#### 🎯 총 발주량 제어 옵션")
-    use_total_cap = st.checkbox("전체 총 발주량 제한(Capping) 활성화", value=False)
-    max_total_order_limit = st.number_input("전체 최대 발주 허용 총량 (대):", value=20, step=1, disabled=not use_total_cap)
+    use_total_cap = st.checkbox("전체 총 발주량 제한 활성화", value=False)
+    max_total_order_limit = st.number_input("MTA 기종 최대 발주량 (대):", value=20, step=1, disabled=not use_total_cap)
 
 # 3. 유틸리티 함수 정의
 def safe_float(val):
@@ -126,7 +126,7 @@ if uploaded_file is not None:
     
     st.markdown("---")
     
-    if st.button("🚀 기종별 맞춤 일괄 분석 및 비교 실행", type="primary"):
+    if st.button("🚀 운영수요량 및 발주량 분석 및 비교 실행", type="primary"):
         raw_analysis_results = []
         
         with st.spinner("AI 분석 모델 및 파라미터 연산 진행 중..."):
@@ -183,7 +183,7 @@ if uploaded_file is not None:
                     avg_6m = np.mean(valid_orders[-6:]) if len(valid_orders) >= 6 else (np.mean(valid_orders) if valid_orders else 0.0)
                     latest_trend = valid_trend[-1] if valid_trend else avg_3m
                     
-                    # [기본 AI 모델 산출] (수주·견적·계약율 조합)
+                    # [기본 모델 산출] (수주·견적·계약율·수요량비교)
                     if model_choice == 'elastic_capa':
                         raw_demand = (avg_3m * 0.4) + (avg_6m * 0.3) + (latest_trend * 0.3)
                     elif model_choice == 'trend_short':
@@ -205,16 +205,16 @@ if uploaded_file is not None:
                     basic_target_inv = math.ceil(basic_demand * global_lead_time)
                     basic_net_order = max(0, basic_target_inv - current_inventory)
 
-                    # [확장 파라미터 모델 산출] (상승 모멘텀 25% 기준 + 성수기 + CAPA 제어)
+                    # [확장 파라미터 모델 산출] (상승 모멘텀 20% 기준 + 성수기 + CAPA 제어)
                     prev_order_val = valid_orders[-2] if len(valid_orders) >= 2 else valid_orders[-1]
                     latest_order_val = valid_orders[-1] if valid_orders else 0.0
                     order_mom_pct = ((latest_order_val - prev_order_val) / prev_order_val * 100) if prev_order_val > 0 else 0.0
-                    is_boom_by_order = order_mom_pct >= 25.0
+                    is_boom_by_order = order_mom_pct >= 20.0
 
                     prev_est_val = valid_estimates[-2] if len(valid_estimates) >= 2 else (valid_estimates[-1] if valid_estimates else 0.0)
                     latest_est_val = valid_estimates[-1] if valid_estimates else 0.0
                     est_mom_pct = ((latest_est_val - prev_est_val) / prev_est_val * 100) if prev_est_val > 0 else 0.0
-                    is_boom_by_est = est_mom_pct >= 25.0
+                    is_boom_by_est = est_mom_pct >= 20.0
 
                     is_auto_boom = is_boom_by_order or is_boom_by_est
                     
@@ -225,7 +225,7 @@ if uploaded_file is not None:
                         momentum_reasons.append(f"단기 수주 급등 (+{order_mom_pct:.1f}%)")
                     if is_boom_by_est:
                         momentum_reasons.append(f"견적 추이 급등 (+{est_mom_pct:.1f}%)")
-                    momentum_desc = " / ".join(momentum_reasons) if momentum_reasons else "조건 미충족 (변동 < 25%)"
+                    momentum_desc = " / ".join(momentum_reasons) if momentum_reasons else "조건 미충족 (변동 < 20%)"
 
                     seasonal_desc = "YoY 계절성 보통"
                     if valid_data_pairs:
@@ -276,7 +276,7 @@ if uploaded_file is not None:
                 except Exception as e:
                     st.error(f"시트 '{sheet_name}' 분석 중 오류 발생: {e}")
 
-            # 2단계: 전체 총 발주량 제한(Capping) 및 비율 안분 계산
+            # 2단계: 전체 총 발주량 제한 계산
             total_raw_orders = sum([r['raw_net_order'] for r in raw_analysis_results])
             
             summary_results = []
@@ -302,7 +302,7 @@ if uploaded_file is not None:
                     '🚨 최종 조정 발주량': f"👉 {final_capped_order} 대"
                 })
 
-                with st.expander(f"📌 [{sheet_name}] 기본 AI ({r['basic_snapped_ratio']*100:+.0f}%) ➡️ 확장 파라미터 반영 ({r['advanced_snapped_ratio']*100:+.0f}%) 상세 진단 리포트"):
+                with st.expander(f"📌 [{sheet_name}] 기본 프로그램 ({r['basic_snapped_ratio']*100:+.0f}%) ➡️ 확장 파라미터 반영 ({r['advanced_snapped_ratio']*100:+.0f}%) 상세 진단 리포트"):
                     report_table_data = [
                         {"분석 비교 항목": "1. 기본 AI 모델 (수주·견적·계약율)", "운영수요량": f"{r['basic_demand']:.2f} 대", "변동률": f"{r['basic_snapped_ratio']*100:+.0f}%", "산출 발주량": f"{r['basic_net_order']} 대"},
                         {"분석 비교 항목": "2. 확장 맞춤 모델 (+모멘텀·성수기·CAPA)", "운영수요량": f"{r['advanced_demand']:.2f} 대", "변동률": f"{r['advanced_snapped_ratio']*100:+.0f}%", "산출 발주량": f"{raw_ord} 대"}
